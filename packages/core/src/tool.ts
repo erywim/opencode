@@ -57,7 +57,12 @@ type Data = {
   // Converted once at registration; schemas cannot change without re-registering the tool.
   definitions: Map<string, ToolDefinition>
   namespaces: Map<string, Tool.Namespace>
-  errors: { kind: "tool" | "namespace"; name: string; namespace?: string; error: RegistrationError }[]
+  errors: {
+    kind: "tool" | "namespace" | "collision"
+    name: string
+    namespace?: string
+    error: RegistrationError
+  }[]
 }
 
 export interface Policy {
@@ -294,7 +299,7 @@ const layer = Layer.effect(
         return Effect.forEach(
           value.errors,
           ({ kind, name, namespace, error }) =>
-            Effect.logError(`Skipping invalid ${kind} registration`, {
+            Effect.logError(kind === "collision" ? "Tool name collision" : `Skipping invalid ${kind} registration`, {
               name,
               namespace,
               error: error.message,
@@ -490,9 +495,28 @@ function commit(editor: Data, id: string, input: RegisteredTool) {
     })
     return
   }
+  const existing = editor.tools.get(id)
+  if (existing !== undefined && !sameSource(existing, tool))
+    editor.errors.push({
+      kind: "collision",
+      name: tool.name,
+      namespace: tool.options?.namespace,
+      error: new RegistrationError({
+        name: id,
+        message: `Tool name collision: "${sourceName(existing)}" and "${sourceName(tool)}" both resolve to "${id}"; "${sourceName(tool)}" replaces "${sourceName(existing)}"`,
+      }),
+    })
   editor.tools.set(id, tool)
   editor.definitions.set(id, registered.success)
 }
+
+/** Only an identical authored name and namespace may replace an earlier registration. */
+const sameSource = (left: Tool.Info, right: Tool.Info) =>
+  left.name === right.name && left.options?.namespace === right.options?.namespace
+
+/** The authored name, before effective-name normalization, for collision diagnostics. */
+const sourceName = (tool: Pick<Tool.Info, "name" | "options">) =>
+  tool.options?.namespace === undefined ? tool.name : `${tool.options.namespace}.${tool.name}`
 
 function* codeModeTools(registered: Data["tools"], paths: ReadonlyArray<string>) {
   for (const path of paths) {

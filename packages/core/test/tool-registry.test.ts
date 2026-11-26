@@ -409,6 +409,69 @@ describe("Tool", () => {
     }),
   )
 
+  it.effect("reports distinct names that resolve to one effective name and keeps the later registration", () => {
+    const output: unknown[] = []
+    const logger = Logger.map(Logger.formatStructured, (entry) => {
+      output.push(entry.message)
+    })
+    return Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* service.transform((editor) => {
+        editor.add({ ...constant("first"), name: "deploy.staging", options: { codemode: false } })
+        editor.add({ ...constant("second"), name: "deploy_staging", options: { codemode: false } })
+        editor.add({ ...constant("third"), name: "c", options: { namespace: "a.b", codemode: false } })
+        editor.add({ ...constant("fourth"), name: "b_c", options: { namespace: "a", codemode: false } })
+      })
+      expect((yield* service.list()).map((tool) => [tool.id, tool.name])).toEqual([
+        ["deploy_staging", "deploy_staging"],
+        ["a_b_c", "b_c"],
+      ])
+      expect((yield* executeTool(service, call("deploy_staging"))).output).toEqual({ text: "second" })
+      expect(output).toEqual([
+        [
+          "Tool name collision",
+          {
+            name: "deploy_staging",
+            namespace: undefined,
+            error:
+              'Tool name collision: "deploy.staging" and "deploy_staging" both resolve to "deploy_staging"; "deploy_staging" replaces "deploy.staging"',
+          },
+        ],
+        [
+          "Tool name collision",
+          {
+            name: "b_c",
+            namespace: "a",
+            error: 'Tool name collision: "a.b.c" and "a.b_c" both resolve to "a_b_c"; "a.b_c" replaces "a.b.c"',
+          },
+        ],
+      ])
+    }).pipe(Effect.provide(Logger.layer([logger])))
+  })
+
+  it.effect("keeps same-name overrides and non-colliding names quiet", () => {
+    const output: unknown[] = []
+    const logger = Logger.map(Logger.formatStructured, (entry) => {
+      output.push(entry.message)
+    })
+    return Effect.gen(function* () {
+      const service = yield* Tool.Service
+      yield* service.transform((editor) => {
+        editor.add({ ...constant("first"), name: "echo", options: { codemode: false } })
+        editor.add({ ...constant("second"), name: "echo", options: { codemode: false } })
+        editor.add({ ...constant("hyphen"), name: "my-tool", options: { codemode: false } })
+        editor.add({ ...constant("underscore"), name: "my_tool", options: { codemode: false } })
+      })
+      expect((yield* service.list()).map((tool) => [tool.id, tool.name])).toEqual([
+        ["echo", "echo"],
+        ["my-tool", "my-tool"],
+        ["my_tool", "my_tool"],
+      ])
+      expect((yield* executeTool(service, call("echo"))).output).toEqual({ text: "second" })
+      expect(output).toEqual([])
+    }).pipe(Effect.provide(Logger.layer([logger])))
+  })
+
   it.effect("executes native tools without requiring letter-leading names or namespace segments", () =>
     Effect.gen(function* () {
       const service = yield* Tool.Service
