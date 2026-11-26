@@ -1570,7 +1570,7 @@ export function Session(props: {
                     />
                   )}
                 </For>
-                <BackgroundToolHint messages={messages()} />
+                <BackgroundToolHint sessionID={route.sessionID} messages={messages()} />
                 <Show when={session()?.revert?.messageID}>
                   <RevertMessage
                     count={messagesFromRevert().filter((message) => message.type === "user").length}
@@ -1906,11 +1906,13 @@ function turnTokenToolSummary(tool: SessionMessageAssistantTool) {
   return [primary === undefined ? "" : String(primary), ...details].filter(Boolean).join("  ")
 }
 
-function BackgroundToolHint(props: { messages: SessionMessageInfo[] }) {
+function BackgroundToolHint(props: { sessionID: string; messages: SessionMessageInfo[] }) {
   const theme = useTheme()
+  const data = useData()
   const shortcut = Keymap.useShortcut("session.background")
   const running = createMemo(() => {
-    if (!shortcut()) return
+    // A tool part left behind by a dead server still says `running`; only a running Session can background it.
+    if (!shortcut() || data.session.status(props.sessionID) !== "running") return
     const current = props.messages.findLast(
       (message): message is SessionMessageAssistant => message.type === "assistant" && !message.time.completed,
     )
@@ -2835,9 +2837,18 @@ function InlineTool(props: {
 }) {
   const theme = useTheme()
   const renderer = useRenderer()
+  const ctx = use()
+  const data = useData()
   const [hover, setHover] = createSignal(false)
   const [errorExpanded, setErrorExpanded] = createSignal(false)
   const permission = useToolPermission(() => props.part)
+  // A part left behind by a dead server still says `running` or `streaming`; only a running Session can animate it.
+  // A subagent keeps its own child Session, which the Subagent view checks separately.
+  const stale = createMemo(() => {
+    if (props.part.name === "subagent") return false
+    if (props.part.state.status !== "running" && props.part.state.status !== "streaming") return false
+    return data.session.status(ctx.sessionID) !== "running"
+  })
 
   const error = createMemo(() =>
     !props.running && props.part.state.status === "error" ? stripAnsi(props.part.state.error.message) : undefined,
@@ -2870,9 +2881,9 @@ function InlineTool(props: {
       denied={Boolean(denied())}
       error={error()}
       errorExpanded={errorExpanded()}
-      complete={props.complete}
+      complete={stale() ? true : props.complete}
       pending={props.pending}
-      spinner={props.spinner}
+      spinner={stale() ? false : props.spinner}
       status={props.status}
       onMouseOver={() => clickable() && setHover(true)}
       onMouseOut={() => setHover(false)}
@@ -3050,7 +3061,10 @@ function ShellDisplay(props: {
     const id = props.shellID
     return Boolean(id && data.shell.get(id))
   })
-  const isRunning = createMemo(() => props.status === "running" || backgroundRunning())
+  // A part left behind by a dead server still says `running`; only a running Session can still run the command.
+  const isRunning = createMemo(
+    () => (props.status === "running" && data.session.status(ctx.sessionID) === "running") || backgroundRunning(),
+  )
   const workdir = createMemo(() => pathFormatter.format(props.workdir))
   const [expanded, setExpanded] = createSignal(false)
   const [backgroundOutput, setBackgroundOutput] = createSignal("")
