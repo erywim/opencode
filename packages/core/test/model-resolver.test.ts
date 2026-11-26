@@ -617,6 +617,39 @@ describe("ModelResolver", () => {
     }),
   )
 
+  it.effect("drops adaptive-only thinking fields when a Bedrock variant disables thinking", () =>
+    Effect.gen(function* () {
+      const base = model(Provider.aisdk("@ai-sdk/amazon-bedrock"), {
+        modelID: "us.anthropic.claude-haiku-5-5",
+        settings: {
+          region: "us-east-1",
+          reasoningConfig: { type: "adaptive", maxReasoningEffort: "medium", display: "summarized" },
+        },
+      })
+      const catalog = Info.make({
+        ...base,
+        variants: Variant.resolve(base, [{ type: "toggle" }, { type: "effort" }]),
+      })
+      const none = yield* ModelResolver.withVariant(catalog, VariantID.make("none"))
+      const low = yield* ModelResolver.withVariant(catalog, VariantID.make("low"))
+
+      expect(none.body?.additionalModelRequestFields).toEqual({
+        thinking: { type: "disabled" },
+        output_config: { effort: "medium" },
+      })
+      expect(none.settings?.thinking).toEqual({ type: "disabled" })
+      expect(low.body?.additionalModelRequestFields).toEqual({
+        thinking: { type: "adaptive", display: "summarized" },
+        output_config: { effort: "low" },
+      })
+      expect(catalog.body?.additionalModelRequestFields).toEqual({
+        thinking: { type: "adaptive", display: "summarized" },
+        output_config: { effort: "medium" },
+      })
+      expect(none.body?.custom_extension).toEqual({ enabled: true })
+    }),
+  )
+
   it.effect("overlays selected OpenAI-compatible variant bodies", () =>
     Effect.gen(function* () {
       const catalog = model(Provider.aisdk("@ai-sdk/openai-compatible"), {

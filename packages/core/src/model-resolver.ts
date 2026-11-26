@@ -177,20 +177,41 @@ export const withVariant = (
         variant: id,
       }),
     )
-  return Effect.succeed(
-    variant
-      ? {
-          ...model,
-          // Config accepts unknown variant keys, so drop `cache` here too; a variant can't change the prompt cache.
-          settings: Provider.mergeOverlay(
-            model.settings,
-            Provider.modelSettings(variant.settings && Struct.omit(variant.settings, ["cache"])),
-          ),
-          headers: Provider.mergeHeaders(model.headers, variant.headers),
-          body: Provider.mergeOverlay(model.body, variant.body),
-        }
-      : model,
+  if (!variant) return Effect.succeed(model)
+  const overlay = variantOverlays(model, variant)
+  return Effect.succeed({
+    ...model,
+    settings: overlay.settings,
+    headers: Provider.mergeHeaders(model.headers, variant.headers),
+    body: overlay.body,
+  })
+}
+
+const BEDROCK_CONVERSE = "@opencode/ai/providers/amazon-bedrock"
+
+// Bedrock carries Claude thinking as a tagged union and rejects fields such as `display` or `budget_tokens` on
+// disabled thinking. A variant that turns thinking off replaces the block instead of merging into it.
+const DisabledBedrockThinking = Schema.Struct({
+  additionalModelRequestFields: Schema.Struct({
+    thinking: Schema.Struct({ type: Schema.Literal("disabled") }),
+  }),
+})
+
+function variantOverlays(model: Info, variant: NonNullable<Info["variants"]>[number]) {
+  // Config accepts unknown variant keys, so drop `cache` here too; a variant can't change the prompt cache.
+  const settings = Provider.mergeOverlay(
+    model.settings,
+    Provider.modelSettings(variant.settings && Struct.omit(variant.settings, ["cache"])),
   )
+  const body = Provider.mergeOverlay(model.body, variant.body)
+  if (model.package !== BEDROCK_CONVERSE || !Schema.is(DisabledBedrockThinking)(body)) return { settings, body }
+  return {
+    settings: { ...settings, thinking: { type: "disabled" } },
+    body: {
+      ...body,
+      additionalModelRequestFields: { ...body.additionalModelRequestFields, thinking: { type: "disabled" } },
+    },
+  }
 }
 
 export interface Dependencies {
