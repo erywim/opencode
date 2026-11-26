@@ -57,7 +57,13 @@ export const key = (input: {
   readonly skills?: boolean
 }) => {
   const config = input.config
-  const common = [config.protocol, config.timeout ?? null, input.clientInfo ?? null, input.skills ?? false]
+  const common = [
+    config.protocol,
+    config.capabilities ?? "full",
+    config.timeout ?? null,
+    input.clientInfo ?? null,
+    input.skills ?? false,
+  ]
   if (config.type === "remote")
     return JSON.stringify([
       "remote",

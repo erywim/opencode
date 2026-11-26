@@ -23,6 +23,13 @@ export const Protocol = Schema.Literals(["legacy", "auto", "2026-07-28"]).annota
     'MCP protocol negotiation. "auto" (default) probes for the 2026-07-28 revision and falls back to legacy when the server does not support it. "legacy" opens with the initialize handshake and speaks protocol revisions up to 2025-11-25. "2026-07-28" requires that revision and fails otherwise.',
 })
 
+export type ClientCapabilities = typeof ClientCapabilities.Type
+export const ClientCapabilities = Schema.Literals(["full", "compat"]).annotate({
+  identifier: "Mcp.ClientCapabilities",
+  description:
+    'Client capabilities advertised to this server. "full" (default) advertises form and URL elicitation and the Extensions block. "compat" advertises form-only elicitation without Extensions, for older strict SDKs that reject capability fields they do not know.',
+})
+
 export class LocalConfig extends Schema.Class<LocalConfig>("Mcp.LocalConfig")({
   type: Schema.Literal("local"),
   command: Schema.String.pipe(Schema.Array),
@@ -36,6 +43,7 @@ export class LocalConfig extends Schema.Class<LocalConfig>("Mcp.LocalConfig")({
   }),
   timeout: TimeoutConfig.pipe(optional),
   protocol: Protocol.pipe(optional),
+  capabilities: ClientCapabilities.pipe(optional),
   pool: Schema.Boolean.pipe(optional).annotate({
     description:
       'Share one connection to this server across every directory that configures it identically, instead of one per directory. Only connections that negotiate the 2026-07-28 revision are shared; an unset "protocol" becomes "auto", and "legacy" never shares. Defaults to false.',
@@ -65,6 +73,7 @@ export class RemoteConfig extends Schema.Class<RemoteConfig>("Mcp.RemoteConfig")
   }),
   timeout: TimeoutConfig.pipe(optional),
   protocol: Protocol.pipe(optional),
+  capabilities: ClientCapabilities.pipe(optional),
   pool: Schema.Boolean.pipe(optional).annotate({
     description:
       'Share one connection to this server across every directory that configures it identically, instead of one per directory. Only connections that negotiate the 2026-07-28 revision are shared; an unset "protocol" becomes "auto", and "legacy" never shares. Defaults to false.',

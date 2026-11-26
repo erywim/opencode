@@ -360,6 +360,28 @@ OpenCode probes every server for the 2026-07-28 revision by default and falls ba
 
 Probing an older local server adds a short-lived extra process and can wait up to the startup timeout when the server ignores unknown requests, so set `legacy` on servers you know predate the 2026-07-28 revision.
 
+### Older strict servers
+
+Some older MCP SDKs reject an `initialize` request that contains client capability fields they do not know. Set `capabilities` to `compat` for those servers. It advertises form elicitation without URL elicitation, and leaves out the Extensions block that carries MCP Events and Skills:
+
+```jsonc title="opencode.jsonc"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "legacy-java": {
+        "type": "remote",
+        "url": "https://mcp.example.com/mcp",
+        "protocol": "legacy",
+        "capabilities": "compat",
+      },
+    },
+  },
+}
+```
+
+The default, `full`, is correct for servers on current SDKs. `compat` only changes what this server hears about the client; the connection still speaks whichever protocol revision it negotiates.
+
 ## Shared connections
 
 One OpenCode server can have many directories open, and each one connects to every MCP server on its own. Set `pool` to `true` to let directories with the same server settings share one connection and one tool list:

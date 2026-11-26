@@ -154,6 +154,7 @@ function resourceServer(
           progressToken: unknown
         }>,
         initializations: 0,
+        capabilities: undefined as unknown,
         /** Listed after the configured tools; change it, then announce the change. */
         extraTools: [] as ListToolsResult["tools"],
         urls: [] as string[],
@@ -324,6 +325,7 @@ function resourceServer(
           const body: unknown = request.method === "POST" ? await request.clone().json() : undefined
           if (typeof body === "object" && body !== null && "method" in body && body.method === "initialize") {
             state.initializations += 1
+            state.capabilities = (body as { params?: { capabilities?: unknown } }).params?.capabilities
           }
           return (await input.respond?.(request)) ?? modern?.fetch(request) ?? current.transport.handleRequest(request)
         },
@@ -670,6 +672,50 @@ test("passes session IDs as MCP request metadata", async () => {
           },
         ])
         expect(server.state.toolCalls[0]?.progressToken).not.toBe(server.state.toolCalls[1]?.progressToken)
+      }),
+    ),
+  )
+})
+
+test("compat capabilities leave out URL elicitation and the Extensions block", async () => {
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        const elicitation = {
+          create: () => Effect.succeed({ action: "cancel" as const }),
+          complete: () => Effect.void,
+        }
+        const open = (capabilities: "full" | "compat") =>
+          Effect.gen(function* () {
+            const server = yield* resourceServer({ events: true })
+            const connection = yield* McpClient.connect({
+              server: `capabilities-${capabilities}`,
+              config: new ConfigMCP.Remote({
+                type: "remote",
+                url: server.url,
+                oauth: false,
+                protocol: "legacy",
+                capabilities,
+              }),
+              directory: import.meta.dir,
+              elicitation,
+              events: true,
+            }).pipe(Effect.provide(hostEnvironmentLayer))
+            return { capabilities: server.state.capabilities, tools: yield* connection.tools() }
+          })
+
+        expect(yield* open("full")).toMatchObject({
+          capabilities: {
+            elicitation: { form: {}, url: {} },
+            roots: {},
+            extensions: { "io.modelcontextprotocol/events": {} },
+          },
+          tools: expect.arrayContaining([expect.objectContaining({ name: "echo" })]),
+        })
+        expect(yield* open("compat")).toMatchObject({
+          capabilities: { elicitation: {}, roots: {} },
+          tools: expect.arrayContaining([expect.objectContaining({ name: "echo" })]),
+        })
       }),
     ),
   )
@@ -3250,6 +3296,8 @@ describe("MCP pool", () => {
     expect(key({ config: new ConfigMCP.Remote({ ...remote, headers: { authorization: "other" } }) })).not.toBe(key())
     expect(key({ config: new ConfigMCP.Remote({ ...remote, codemode: false }) })).not.toBe(key())
     expect(key({ config: new ConfigMCP.Remote({ ...remote, disabled: false }) })).toBe(key())
+    expect(key({ config: new ConfigMCP.Remote({ ...remote, capabilities: "full" }) })).toBe(key())
+    expect(key({ config: new ConfigMCP.Remote({ ...remote, capabilities: "compat" }) })).not.toBe(key())
     expect(localKey()).not.toBe(localKey({ cwd: "/b" }))
     expect(localKey({ config: new ConfigMCP.Local({ ...local, environment: { TOKEN: "other" } }) })).not.toBe(
       localKey(),

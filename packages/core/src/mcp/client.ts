@@ -372,6 +372,9 @@ export const connect = Effect.fnUntraced(function* (options: ConnectOptions) {
   const timeout: (typeof ConfigMCP.Server.Type)["timeout"] =
     config.type === "attached" ? { execution: ATTACHED_EXECUTION_TIMEOUT } : config.timeout
   const protocol = config.protocol ?? (config.type === "attached" ? "legacy" : "auto")
+  // Strict older SDKs reject capability fields they do not know, including on the legacy initialize. `compat`
+  // advertises only form elicitation and leaves out the Extensions block, which is 2026-07-28-only.
+  const compat = config.type !== "attached" && config.capabilities === "compat"
   const changed = { tools: () => {}, prompts: () => {}, resources: () => {} }
   const listChanged = (key: keyof typeof changed) => ({
     autoRefresh: false,
@@ -428,18 +431,18 @@ export const connect = Effect.fnUntraced(function* (options: ConnectOptions) {
     const runPromise = Effect.runPromiseWith(context)
     const client = new Client(options.clientInfo ?? { name: "opencode", version: "unknown" }, {
       capabilities: {
-        ...(elicitation ? { elicitation: { form: {}, url: {} } } : {}),
+        ...(elicitation ? { elicitation: compat ? {} : { form: {}, url: {} } } : {}),
         // Legacy era only: roots are deprecated as of 2026-07-28 and modern servers cannot request them.
         // Some legacy servers refuse to run without one (https://github.com/anomalyco/opencode/issues/2308).
         ...(options.roots === false ? {} : { roots: {} }),
-        ...(options.events || options.skills
-          ? {
+        ...(compat || (!options.events && !options.skills)
+          ? {}
+          : {
               extensions: {
                 ...(options.events ? { [EVENTS]: {} } : {}),
                 ...(options.skills ? { [SKILLS_EXTENSION_ID]: {} } : {}),
               },
-            }
-          : {}),
+            }),
       },
       versionNegotiation: negotiation(protocol, timeout?.startup ?? DEFAULT_STARTUP_TIMEOUT),
       listChanged: {
